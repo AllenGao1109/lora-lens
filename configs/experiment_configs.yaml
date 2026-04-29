@@ -1,0 +1,104 @@
+# =============================================================================
+# Experiment Configurations for LoRA Spectral Analysis
+# =============================================================================
+
+base:
+  model_name: "Qwen/Qwen2.5-0.5B-Instruct"
+  dataset: "tatsu-lab/alpaca"
+  max_train_samples: 1000
+  max_seq_length: 512
+  num_train_epochs: 3
+  learning_rate: 2.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  logging_steps: 10
+  save_strategy: "epoch"
+  bf16: false          # CPU doesn't support bf16; set true for Colab GPU
+  fp16: false          # Set true for Colab T4
+  output_dir: "./results/adapters"
+  seed: 42
+
+# --- Experiment 1: Rank Ablation ---
+rank_ablation:
+  configs:
+    - name: "R4"
+      lora_r: 4
+      lora_alpha: 8       # alpha = 2 * r is a common heuristic
+      target_modules: ["q_proj", "v_proj"]
+    - name: "R8"
+      lora_r: 8
+      lora_alpha: 16
+      target_modules: ["q_proj", "v_proj"]
+    - name: "R16"
+      lora_r: 16
+      lora_alpha: 32
+      target_modules: ["q_proj", "v_proj"]
+    - name: "R32"
+      lora_r: 32
+      lora_alpha: 64
+      target_modules: ["q_proj", "v_proj"]
+    - name: "R64"
+      lora_r: 64
+      lora_alpha: 128
+      target_modules: ["q_proj", "v_proj"]
+
+# --- Experiment 2: Layer-wise Analysis ---
+# Uses R16 config from rank_ablation as baseline.
+# No separate training needed — just analyze R16 adapter per layer.
+layer_analysis:
+  base_config: "R16"
+  metrics:
+    - effective_rank
+    - intruder_dimension_score
+    - spectral_entropy
+    - svr_top5
+  ablation_method: "zero_out"  # Zero out each layer's adapter to measure importance
+
+# --- Experiment 3: Data Scaling ---
+data_scaling:
+  lora_r: 16
+  lora_alpha: 32
+  target_modules: ["q_proj", "v_proj"]
+  sample_sizes: [100, 500, 1000, 2000, 5000]
+
+# --- Experiment 4: Target Module Selection ---
+target_module_ablation:
+  lora_r: 16
+  lora_alpha: 32
+  configs:
+    - name: "QV"
+      target_modules: ["q_proj", "v_proj"]
+    - name: "QKVO"
+      target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+    - name: "ALL"
+      target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+# --- Experiment 5: Adapter Composability (Optional) ---
+composability:
+  lora_r: 16
+  lora_alpha: 32
+  target_modules: ["q_proj", "v_proj"]
+  task_a:
+    name: "instruction_following"
+    dataset: "tatsu-lab/alpaca"
+    max_train_samples: 1000
+  task_b:
+    name: "math_reasoning"
+    dataset: "gsm8k"
+    max_train_samples: 1000
+  merge_alphas: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+# --- Spectral Analysis Settings ---
+spectral:
+  intruder_threshold: 0.9    # IDS > 0.9 counts as intruder
+  svr_top_k: 5               # Top-k directions for SVR
+  bootstrap_n: 1000           # Bootstrap samples for CI on spectral metrics
+
+# --- Evaluation Settings ---
+evaluation:
+  eval_framework_path: "../llm_eval/eval_framework"
+  categories: ["instruction_following", "hallucination", "reasoning"]
+  max_new_tokens: 256
+  temperature: 0.1
